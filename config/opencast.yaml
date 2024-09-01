@@ -1,0 +1,23 @@
+address: "http://localhost:8080"
+login: "admin"
+password: "opencast"
+
+acl:
+  - allow: true
+    role: "ROLE_EXTERNAL_APPLICATION"
+    action: "read"
+  - allow: true
+    role: "ROLE_EXTERNAL_APPLICATION"
+    action: "write"
+  - allow: true
+    role: "ROLE_USER_LANGR"
+    action: "read"
+  - allow: true
+    role: "ROLE_USER_LANGR"
+    action: "write"
+
+processing:
+  workflow: "ilias"
+  configuration:
+    autopublish: "false"
+    useExternalPlayer: "false"
