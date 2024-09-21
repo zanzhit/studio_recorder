@@ -3,6 +3,6 @@ package postgres
 const (
 	UsersTable   = "users"
 	AdminsTable  = "admins"
-	RecordsTable = "records"
+	RecordsTable = "recordings"
 	CamerasTable = "cameras"
 )

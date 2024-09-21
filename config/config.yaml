@@ -1,9 +1,9 @@
 env: "local"
-token_ttl: "10h"
+token_ttl: "12h"
 secret: "afgjklfadgkjljfdbajklfadggj"
 db:
     username: "postgres"
-    host: "db"
+    host: "localhost"
     port: "5432"
     dbname: "postgres"
     sslmode: "disable"
@@ -15,27 +15,4 @@ http_server:
 
 videos_path: "videos"
 
-video_service:
-  address: "http://localhost:8080"
-  login: "admin"
-  password: "opencast"
-
-  acl:
-    - allow: true
-      role: "ROLE_EXTERNAL_APPLICATION"
-      action: "read"
-    - allow: true
-      role: "ROLE_EXTERNAL_APPLICATION"
-      action: "write"
-    - allow: true
-      role: "ROLE_USER_LANGR"
-      action: "read"
-    - allow: true
-      role: "ROLE_USER_LANGR"
-      action: "write"
-
-  processing:
-  workflow: "ilias"
-  configuration:
-    autopublish: "false"
-    useExternalPlayer: "false"
+video_service: "config/opencast.yaml"

@@ -1,17 +1,32 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	_ "github.com/lib/pq"
+
 	"github.com/zanzhit/studio_recorder/internal/config"
 	authhandler "github.com/zanzhit/studio_recorder/internal/http-server/handlers/auth"
+	camerahandler "github.com/zanzhit/studio_recorder/internal/http-server/handlers/cameras"
+	recordinghandler "github.com/zanzhit/studio_recorder/internal/http-server/handlers/recordings"
+	authmid "github.com/zanzhit/studio_recorder/internal/http-server/middleware/auth"
 	"github.com/zanzhit/studio_recorder/internal/http-server/middleware/logger"
+	"github.com/zanzhit/studio_recorder/internal/lib/sl"
 	authservice "github.com/zanzhit/studio_recorder/internal/services/auth"
+	recordingservice "github.com/zanzhit/studio_recorder/internal/services/recordings"
+	"github.com/zanzhit/studio_recorder/internal/services/recordings/opencast"
 	"github.com/zanzhit/studio_recorder/internal/storage/postgres"
 	authstorage "github.com/zanzhit/studio_recorder/internal/storage/postgres/auth"
+	camerastorage "github.com/zanzhit/studio_recorder/internal/storage/postgres/cameras"
+	recordingstorage "github.com/zanzhit/studio_recorder/internal/storage/postgres/recordings"
 )
 
 const (
@@ -27,11 +42,6 @@ func main() {
 
 	log.Info("starting application", slog.Any("config", cfg))
 
-	cfg.DB.Password = os.Getenv("POSTGRES_PASSWORD")
-	if cfg.DB.Password == "" {
-		panic("POSTGRES_PASSWORD is required")
-	}
-
 	storage, err := postgres.New(cfg.DB)
 	if err != nil {
 		panic(err)
@@ -45,10 +55,74 @@ func main() {
 	router.Use(middleware.URLFormat)
 
 	authStorage := authstorage.New(storage)
-
 	authService := authservice.New(log, authStorage, authStorage, cfg.TokenTTL, cfg.Secret)
-
 	authHandler := authhandler.New(log, authService)
+
+	if err := authService.CreateInitialAdmin(); err != nil {
+		panic(err)
+	}
+
+	cameraStorage := camerastorage.New(storage)
+	cameraHandler := camerahandler.New(log, cameraStorage)
+
+	opencast := opencast.MustLoad(cfg.VideoService)
+
+	recordingStorage := recordingstorage.New(storage)
+	recordingService := recordingservice.New(log, recordingStorage, recordingStorage, opencast, cfg.VideosPath)
+	recordingHandler := recordinghandler.New(log, recordingService, recordingService)
+
+	router.Post("/login", authHandler.Login)
+	router.With(authmid.AdminRequired).Post("/register", authHandler.RegisterNewUser)
+
+	router.With(authmid.JWTAuth(cfg.Secret)).Group(func(r chi.Router) {
+		r.With(authmid.AdminRequired).Post("/register", authHandler.RegisterNewUser)
+		r.With(authmid.AdminRequired).Post("/cameras", cameraHandler.SaveCamera)
+
+		r.Post("/recordings/start", recordingHandler.Start)
+		r.Post("/recordings/stop", recordingHandler.Stop)
+		r.Post("/recordings/schedule", recordingHandler.Schedule)
+		r.Post("/recordings/move", recordingHandler.Move)
+		r.Get("/recordings", recordingHandler.Recordings)
+	})
+
+	log.Info("starting http server", slog.String("address", cfg.Address))
+
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	srv := http.Server{
+		Addr:         cfg.Address,
+		Handler:      router,
+		ReadTimeout:  cfg.Timeout,
+		WriteTimeout: cfg.Timeout,
+		IdleTimeout:  cfg.IdleTimeout,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
+			log.Error("failed to start server")
+		}
+	}()
+
+	<-done
+	log.Error("stopping server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error("failed to stop server", sl.Err(err))
+
+		return
+	}
+
+	if err := storage.Close(); err != nil {
+		log.Error("failed to close storage", sl.Err(err))
+
+		return
+	}
+
+	log.Info("server stopped")
 }
 
 func setupLogger(env string) *slog.Logger {

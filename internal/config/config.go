@@ -22,7 +22,6 @@ type DB struct {
 	Host     string `yaml:"host" env-required:"true"`
 	Port     string `yaml:"port" env-required:"true"`
 	Username string `yaml:"username" env-required:"true"`
-	Password string `yaml:"password"`
 	DBName   string `yaml:"dbname" env-required:"true"`
 	SSLMode  string `yaml:"sslmode" env-required:"true"`
 }

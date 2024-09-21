@@ -12,4 +12,6 @@ var (
 
 	ErrRecordNotFound   = errors.New("record not found")
 	ErrInvalidStartTime = errors.New("invalid start time")
+
+	ErrWriteToDB = errors.New("failed to write to database")
 )

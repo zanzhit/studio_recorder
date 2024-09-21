@@ -18,7 +18,7 @@ func New(db *sqlx.DB) *CameraStorage {
 	}
 }
 
-func (s *CameraStorage) Save(cam models.Camera) (models.Camera, error) {
+func (s *CameraStorage) SaveCamera(cam models.Camera) (models.Camera, error) {
 	const op = "storage.postgres.cameras.Save"
 
 	query := fmt.Sprintf(`INSERT INTO %s (camera_ip, location, has_audio) VALUES ($1, $2, $3) RETURNING *`, postgres.CamerasTable)

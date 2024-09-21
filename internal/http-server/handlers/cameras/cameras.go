@@ -9,23 +9,16 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10"
+
 	"github.com/zanzhit/studio_recorder/internal/domain/errs"
 	"github.com/zanzhit/studio_recorder/internal/domain/models"
-	"github.com/zanzhit/studio_recorder/internal/http-server/handlers"
 	"github.com/zanzhit/studio_recorder/internal/lib/api/response"
 	"github.com/zanzhit/studio_recorder/internal/lib/sl"
 )
 
 type CameraHandler struct {
-	log      *slog.Logger
-	recorder Recorder
-	camera   Camera
-}
-
-type Recorder interface {
-	Start(cameraIP []string, userID int) (string, error)
-	Stop(cameraIP []string, userID int) (string, error)
-	Schedule(rec models.ScheduleRecording, userID int) error
+	log    *slog.Logger
+	camera Camera
 }
 
 type Camera interface {
@@ -34,13 +27,11 @@ type Camera interface {
 
 func New(
 	log *slog.Logger,
-	recorder Recorder,
 	camera Camera,
 ) *CameraHandler {
 	return &CameraHandler{
-		log:      log,
-		recorder: recorder,
-		camera:   camera,
+		log:    log,
+		camera: camera,
 	}
 }
 
@@ -58,14 +49,16 @@ func (h *CameraHandler) SaveCamera(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, io.EOF) {
 			log.Error("request body is empty")
 
-			handlers.Error(w, r, http.StatusBadRequest, response.Error("empty request", ""))
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, response.Error("empty request", ""))
 
 			return
 		}
 
 		log.Error("failed to decode request body", sl.Err(err))
 
-		handlers.Error(w, r, http.StatusInternalServerError, response.Error("failed to decode request", middleware.GetReqID(r.Context())))
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, response.Error("failed to decode request", middleware.GetReqID(r.Context())))
 
 		return
 	}
@@ -77,7 +70,8 @@ func (h *CameraHandler) SaveCamera(w http.ResponseWriter, r *http.Request) {
 
 		log.Error("invalid request", sl.Err(err))
 
-		handlers.Error(w, r, http.StatusBadRequest, response.ValidationError(validateErr))
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, response.ValidationError(validateErr))
 
 		return
 	}
@@ -85,14 +79,18 @@ func (h *CameraHandler) SaveCamera(w http.ResponseWriter, r *http.Request) {
 	cam, err := h.camera.SaveCamera(req)
 	if err != nil {
 		if errors.Is(err, errs.ErrCameraAlreadyExists) {
-			handlers.Error(w, r, http.StatusBadRequest, response.Error("camera already exists", ""))
+			log.Error("camera is already exist", sl.Err(err))
+
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, response.Error("camera already exists", ""))
 
 			return
 		}
 
-		log.Error("failed to save new camera", sl.Err(err))
+		log.Error("failed to save camera", sl.Err(err))
 
-		handlers.Error(w, r, http.StatusInternalServerError, response.Error("failed to save new camera", middleware.GetReqID(r.Context())))
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, response.Error("failed to save new camera", middleware.GetReqID(r.Context())))
 
 		return
 	}

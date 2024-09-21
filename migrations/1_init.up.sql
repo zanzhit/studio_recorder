@@ -20,9 +20,9 @@ CREATE TABLE IF NOT EXISTS recordings (
     record_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id INTEGER NOT NULL,
     camera_ip TEXT,
-    start_time TIMESTAMP NOT NULL,
+    start_time TIMESTAMP,
     stop_time TIMESTAMP,
-    file_path TEXT NOT NULL,
+    file_path TEXT,
     is_moved BOOLEAN NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (camera_ip) REFERENCES cameras(camera_ip) ON DELETE SET NULL

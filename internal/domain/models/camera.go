@@ -1,7 +1,7 @@
 package models
 
 type Camera struct {
-	CameraIP string
-	Location string
-	HasAudio bool
+	CameraIP string `json:"camera_ip" db:"camera_ip"`
+	Location string `json:"location" db:"location"`
+	HasAudio bool   `json:"has_audio" db:"has_audio"`
 }

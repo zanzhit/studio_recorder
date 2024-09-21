@@ -20,8 +20,8 @@ func main() {
 	flag.StringVar(&migrationsTable, "migrations-table", "migrations", "name of migrations table")
 
 	cfg := config.MustLoad()
-	cfg.DB.Password = os.Getenv("POSTGRES_PASSWORD")
-	if cfg.DB.Password == "" {
+	password := os.Getenv("POSTGRES_PASSWORD")
+	if password == "" {
 		panic("POSTGRESS_PASSWORD is required")
 	}
 
@@ -30,7 +30,7 @@ func main() {
 	}
 
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s&x-migrations-table=%s",
-		cfg.DB.Username, cfg.DB.Password, cfg.DB.Host, cfg.DB.Port, cfg.DB.DBName, cfg.DB.SSLMode, migrationsTable)
+		cfg.DB.Username, password, cfg.DB.Host, cfg.DB.Port, cfg.DB.DBName, cfg.DB.SSLMode, migrationsTable)
 
 	m, err := migrate.New(
 		"file://"+migrationsPath,

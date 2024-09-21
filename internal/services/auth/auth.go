@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/zanzhit/studio_recorder/internal/domain/constants"
@@ -112,4 +113,38 @@ func (s *AuthService) Login(email, password string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func (s *AuthService) CreateInitialAdmin() error {
+	const op = "service.auth.Login"
+
+	log := s.log.With(
+		slog.String("op", op),
+	)
+
+	adminEmail := os.Getenv("ADMIN_EMAIL")
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+
+	if adminEmail == "" || adminPassword == "" {
+		return fmt.Errorf("ADMIN_EMAIL and ADMIN_PASSWORD are required")
+	}
+
+	_, err := s.userProvider.User(adminEmail)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, errs.ErrInvalidCredentials) {
+		return fmt.Errorf("failed to check admin existence: %w", err)
+	}
+
+	_, err = s.RegisterNewUser(adminEmail, adminPassword, constants.Admin)
+	if err != nil {
+		s.log.Error("failed to create admin", sl.Err(err))
+
+		return fmt.Errorf("failed to create admin: %w", err)
+	}
+
+	log.Info("admin created successfully")
+
+	return nil
 }

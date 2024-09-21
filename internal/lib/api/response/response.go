@@ -26,8 +26,6 @@ func ValidationError(errs validator.ValidationErrors) Response {
 		switch err.ActualTag() {
 		case "required":
 			errMsgs = append(errMsgs, fmt.Sprintf("field %s is a required field", err.Field()))
-		case "email":
-			errMsgs = append(errMsgs, fmt.Sprintf("field %s is not a valid email address", err.Field()))
 		case "password":
 			errMsgs = append(errMsgs, fmt.Sprintf("field %s does not meet password requirements", err.Field()))
 		case "user_type":

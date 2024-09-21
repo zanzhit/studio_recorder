@@ -57,7 +57,7 @@ func (s *AuthStorage) User(email string) (models.User, error) {
 	const op = "storage.postgres.Auth.User"
 
 	var user models.User
-	query := fmt.Sprintf("SELECT id, email, password_hash FROM %s WHERE id = $1", postgres.UsersTable)
+	query := fmt.Sprintf("SELECT id, email, password_hash FROM %s WHERE email = $1", postgres.UsersTable)
 
 	if err := s.db.Get(&user, query, email); err != nil {
 		if err == sql.ErrNoRows {
@@ -69,7 +69,7 @@ func (s *AuthStorage) User(email string) (models.User, error) {
 	query = fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE user_id = $1)", postgres.AdminsTable)
 	var isAdmin bool
 
-	err := s.db.Get(&isAdmin, query, email)
+	err := s.db.Get(&isAdmin, query, user.Id)
 	if err != nil {
 		return models.User{}, fmt.Errorf("%s: %w", op, err)
 	}
