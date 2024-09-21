@@ -8,12 +8,11 @@ RUN go mod download
 COPY . .
 
 RUN go build -o migrator cmd/migrator/main.go
-
 RUN go build -o recorder cmd/recorder/main.go
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates postgresql-client
+RUN apk --no-cache add ca-certificates postgresql-client gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
 
 WORKDIR /root/
 
