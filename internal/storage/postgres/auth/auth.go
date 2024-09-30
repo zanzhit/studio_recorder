@@ -82,3 +82,38 @@ func (s *AuthStorage) User(email string) (models.User, error) {
 
 	return user, nil
 }
+
+func (s *AuthStorage) UpdatePassword(email string, passHash []byte) error {
+	const op = "storage.postgres.auth.UpdatePassword"
+
+	query := fmt.Sprintf("UPDATE %s SET password_hash = $1 WHERE email = $2", postgres.UsersTable)
+
+	result, err := s.db.Exec(query, passHash, email)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("%s: %w", op, errs.ErrUserNotFound)
+	}
+
+	return nil
+}
+
+func (s *AuthStorage) DeleteUser(email string) error {
+	const op = "storage.postgres.auth.DeleteUser"
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE email = $1", postgres.UsersTable)
+
+	_, err := s.db.Exec(query, email)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}

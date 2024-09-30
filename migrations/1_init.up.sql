@@ -11,19 +11,20 @@ CREATE TABLE IF NOT EXISTS admins (
 );
 
 CREATE TABLE IF NOT EXISTS cameras (
-    camera_ip TEXT PRIMARY KEY,
+    camera_id TEXT PRIMARY KEY,
+    camera_ip TEXT UNIQUE NOT NULL,
     location TEXT NOT NULL,
     has_audio BOOLEAN NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS recordings (
-    record_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    record_id UUID PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    camera_ip TEXT,
-    start_time TIMESTAMP,
+    camera_id TEXT NOT NULL,
+    start_time TIMESTAMP NOT NULL,
     stop_time TIMESTAMP,
     file_path TEXT,
     is_moved BOOLEAN NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (camera_ip) REFERENCES cameras(camera_ip) ON DELETE SET NULL
+    FOREIGN KEY (camera_id) REFERENCES cameras(camera_id) ON DELETE SET NULL
 );

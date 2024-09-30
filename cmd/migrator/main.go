@@ -15,9 +15,11 @@ import (
 
 func main() {
 	var migrationsPath, migrationsTable string
+	var rollback bool
 
 	flag.StringVar(&migrationsPath, "migrations-path", "", "path to migrations")
 	flag.StringVar(&migrationsTable, "migrations-table", "migrations", "name of migrations table")
+	flag.BoolVar(&rollback, "rollback", false, "rollback migrations")
 
 	cfg := config.MustLoad()
 	password := os.Getenv("POSTGRES_PASSWORD")
@@ -38,6 +40,22 @@ func main() {
 	)
 	if err != nil {
 		panic(err)
+	}
+
+	if rollback {
+		if err := m.Down(); err != nil {
+			if errors.Is(err, migrate.ErrNoChange) {
+				fmt.Println("no migrations to rollback")
+
+				return
+			}
+
+			panic(err)
+		}
+
+		fmt.Println("migrations rolled back successfully")
+
+		return
 	}
 
 	if err := m.Up(); err != nil {

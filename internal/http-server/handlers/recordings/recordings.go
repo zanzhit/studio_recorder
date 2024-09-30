@@ -5,7 +5,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10"
@@ -24,14 +27,16 @@ type RecordHandler struct {
 }
 
 type RecordingProvider interface {
-	CameraRecordings(camera string, limit, userID int) ([]models.Recording, error)
+	CameraRecordings(camera string, limit, offset, userID int) ([]models.Recording, error)
+	Delete(recordID string) error
 	Move(recordID string) error
+	File(recordID string) (string, error)
 }
 
 type Recorder interface {
-	Start(cameraIP []string, userID int) (string, error)
+	Start(cameraID []string, userID int) (string, error)
 	Stop(recordId string) error
-	Schedule(rec models.ScheduleRecording, userID int) error
+	Schedule(startTime time.Time, cameraID []string, duration string, userID int) error
 }
 
 func New(log *slog.Logger, recordingProvider RecordingProvider, recorder Recorder) *RecordHandler {
@@ -42,16 +47,18 @@ func New(log *slog.Logger, recordingProvider RecordingProvider, recorder Recorde
 	}
 }
 
-type RequestIP struct {
-	CameraIPs []string `json:"camera_ips" validate:"required"`
+type RequestStart struct {
+	CameraIDs []string `json:"camera_ids" validate:"required"`
 }
 
-type RequestID struct {
-	RecordID string `json:"record_id" validate:"required"`
+type RequestSchedule struct {
+	CameraID  []string  `json:"camera_id" validate:"required"`
+	Duration  string    `json:"duration" validate:"required"`
+	StartTime time.Time `json:"start_time" validate:"required"`
 }
 
 type Response struct {
-	RecordID string `json:"record_id,omitempty"`
+	RecordID string `json:"record_id"`
 	response.Response
 }
 
@@ -63,38 +70,35 @@ func (h *RecordHandler) Recordings(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", middleware.GetReqID(r.Context())),
 	)
 
-	var req RequestIP
-	err := render.DecodeJSON(r.Body, &req)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			log.Error("request body is empty")
-
-			render.Status(r, http.StatusBadRequest)
-			render.JSON(w, r, response.Error("empty request", ""))
-
-			return
-		}
-
-		log.Error("failed to decode request body", sl.Err(err))
-
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, response.Error("failed to decode request", middleware.GetReqID(r.Context())))
-
-		return
-	}
-
-	if len(req.CameraIPs) != 1 {
-		log.Error("invalid request", sl.Err(err))
+	cameraID := chi.URLParam(r, "cameraID")
+	if cameraID == "" {
+		log.Error("camera_id is empty")
 
 		render.Status(r, http.StatusBadRequest)
-		render.JSON(w, r, response.Error("too many ips", middleware.GetReqID(r.Context())))
+		render.JSON(w, r, response.Error("camera_id is empty", middleware.GetReqID(r.Context())))
 
 		return
 	}
 
-	log.Info("request body decoded", slog.Any("request", req))
+	log.Info("camera_id", slog.String("camera_id", cameraID))
+
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
 
 	limit := 5
+	offset := 0
+
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
 
 	user, ok := r.Context().Value(authmiddleware.UserContextKey).(models.User)
 	if !ok {
@@ -106,8 +110,15 @@ func (h *RecordHandler) Recordings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := h.recordingProvider.CameraRecordings(req.CameraIPs[0], limit, user.Id)
+	rec, err := h.recordingProvider.CameraRecordings(cameraID, limit, offset, user.Id)
 	if err != nil {
+		if errors.Is(err, errs.ErrRecordNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording not found", middleware.GetReqID(r.Context())))
+
+			return
+		}
+
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, response.Error("failed to get recording", middleware.GetReqID(r.Context())))
 
@@ -125,49 +136,29 @@ func (h *RecordHandler) Move(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", middleware.GetReqID(r.Context())),
 	)
 
-	var req RequestID
-	err := render.DecodeJSON(r.Body, &req)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			log.Error("request body is empty")
+	recordID := chi.URLParam(r, "recordID")
+	if recordID == "" {
+		log.Error("record_id is empty")
 
-			render.Status(r, http.StatusBadRequest)
-			render.JSON(w, r, response.Error("empty request", ""))
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, response.Error("record_id is empty", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	log.Info("record_id", slog.String("record_id", recordID))
+
+	if err := h.recordingProvider.Move(recordID); err != nil {
+		if errors.Is(err, errs.ErrRecordNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording not found", middleware.GetReqID(r.Context())))
 
 			return
 		}
 
-		log.Error("failed to decode request body", sl.Err(err))
-
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, response.Error("failed to decode request", middleware.GetReqID(r.Context())))
-
-		return
-	}
-
-	log.Info("request body decoded", slog.Any("request", req))
-
-	if err := validator.New().Struct(req); err != nil {
-		validateErr := err.(validator.ValidationErrors)
-
-		log.Error("invalid request", sl.Err(err))
-
-		render.Status(r, http.StatusBadRequest)
-		render.JSON(w, r, response.ValidationError(validateErr))
-
-		return
-	}
-
-	if err = h.recordingProvider.Move(req.RecordID); err != nil {
 		if errors.Is(err, errs.ErrWriteToDB) {
-			response := Response{
-				Response: response.Response{
-					Error: "failed to write move data",
-				},
-			}
-
 			render.Status(r, http.StatusInternalServerError)
-			render.JSON(w, r, response)
+			render.JSON(w, r, response.Error("recording moved, but failed to write move data", middleware.GetReqID(r.Context())))
 
 			return
 		}
@@ -189,7 +180,7 @@ func (h *RecordHandler) Start(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", middleware.GetReqID(r.Context())),
 	)
 
-	var req RequestIP
+	var req RequestStart
 	err := render.DecodeJSON(r.Body, &req)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -232,18 +223,17 @@ func (h *RecordHandler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recordID, err := h.recorder.Start(req.CameraIPs, user.Id)
+	recordID, err := h.recorder.Start(req.CameraIDs, user.Id)
 	if err != nil {
 		if errors.Is(err, errs.ErrWriteToDB) {
-			response := Response{
-				RecordID: recordID,
-				Response: response.Response{
-					Error: "failed to write start data",
-				},
-			}
-
 			render.Status(r, http.StatusInternalServerError)
-			render.JSON(w, r, response)
+			render.JSON(w, r, Response{RecordID: recordID, Response: response.Error("failed to write start data", middleware.GetReqID(r.Context()))})
+
+			return
+		}
+		if errors.Is(err, errs.ErrCameraIsNotAvailable) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("camera is not available", middleware.GetReqID(r.Context())))
 
 			return
 		}
@@ -265,49 +255,29 @@ func (h *RecordHandler) Stop(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", middleware.GetReqID(r.Context())),
 	)
 
-	var req RequestID
-	err := render.DecodeJSON(r.Body, &req)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			log.Error("request body is empty")
+	recordID := chi.URLParam(r, "recordID")
+	if recordID == "" {
+		log.Error("record_id is empty")
 
-			render.Status(r, http.StatusBadRequest)
-			render.JSON(w, r, response.Error("empty request", ""))
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, response.Error("record_id is empty", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	log.Info("record_id", slog.String("record_id", recordID))
+
+	if err := h.recorder.Stop(recordID); err != nil {
+		if errors.Is(err, errs.ErrRecordNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording not found", middleware.GetReqID(r.Context())))
 
 			return
 		}
 
-		log.Error("failed to decode request body", sl.Err(err))
-
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, response.Error("failed to decode request", middleware.GetReqID(r.Context())))
-
-		return
-	}
-
-	log.Info("request body decoded", slog.Any("request", req))
-
-	if err := validator.New().Struct(req); err != nil {
-		validateErr := err.(validator.ValidationErrors)
-
-		log.Error("invalid request", sl.Err(err))
-
-		render.Status(r, http.StatusBadRequest)
-		render.JSON(w, r, response.ValidationError(validateErr))
-
-		return
-	}
-
-	if err = h.recorder.Stop(req.RecordID); err != nil {
 		if errors.Is(err, errs.ErrWriteToDB) {
-			response := Response{
-				Response: response.Response{
-					Error: "failed to write start data",
-				},
-			}
-
 			render.Status(r, http.StatusInternalServerError)
-			render.JSON(w, r, response)
+			render.JSON(w, r, response.Error("recording stopped, but failed to write stop data", middleware.GetReqID(r.Context())))
 
 			return
 		}
@@ -329,7 +299,7 @@ func (h *RecordHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", middleware.GetReqID(r.Context())),
 	)
 
-	var rec models.ScheduleRecording
+	var rec RequestSchedule
 
 	err := render.DecodeJSON(r.Body, &rec)
 	if err != nil {
@@ -373,7 +343,7 @@ func (h *RecordHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.recorder.Schedule(rec, user.Id); err != nil {
+	if err := h.recorder.Schedule(rec.StartTime, rec.CameraID, rec.Duration, user.Id); err != nil {
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, response.Error("failed to schedule recording", middleware.GetReqID(r.Context())))
 
@@ -381,4 +351,91 @@ func (h *RecordHandler) Schedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *RecordHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	const op = "handlers.cameras.Delete"
+
+	log := h.log.With(
+		slog.String("op", op),
+		slog.String("request_id", middleware.GetReqID(r.Context())),
+	)
+
+	recordID := chi.URLParam(r, "recordID")
+	if recordID == "" {
+		log.Error("record_id is empty")
+
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, response.Error("record_id is empty", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	log.Info("record_id", slog.String("record_id", recordID))
+
+	if err := h.recordingProvider.Delete(recordID); err != nil {
+		if errors.Is(err, errs.ErrRecordNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording not found", middleware.GetReqID(r.Context())))
+
+			return
+		}
+
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, response.Error("failed to delete recording", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *RecordHandler) Download(w http.ResponseWriter, r *http.Request) {
+	const op = "handlers.cameras.Download"
+
+	log := h.log.With(
+		slog.String("op", op),
+		slog.String("request_id", middleware.GetReqID(r.Context())),
+	)
+
+	recordID := chi.URLParam(r, "recordID")
+	if recordID == "" {
+		log.Error("record_id is empty")
+
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, response.Error("record_id is empty", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	log.Info("record_id", slog.String("record_id", recordID))
+
+	filePath, err := h.recordingProvider.File(recordID)
+	if err != nil {
+		if errors.Is(err, errs.ErrRecordNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording not found", middleware.GetReqID(r.Context())))
+
+			return
+		}
+		if errors.Is(err, errs.ErrFileNotFound) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording file not found", middleware.GetReqID(r.Context())))
+
+			return
+		}
+		if errors.Is(err, errs.ErrFileAlreadyMoved) {
+			render.Status(r, http.StatusNotFound)
+			render.JSON(w, r, response.Error("recording file already moved", middleware.GetReqID(r.Context())))
+
+			return
+		}
+
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, response.Error("failed to get recording", middleware.GetReqID(r.Context())))
+
+		return
+	}
+
+	http.ServeFile(w, r, filePath)
 }

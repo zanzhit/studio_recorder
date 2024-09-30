@@ -21,6 +21,7 @@ import (
 	"github.com/zanzhit/studio_recorder/internal/http-server/middleware/logger"
 	"github.com/zanzhit/studio_recorder/internal/lib/sl"
 	authservice "github.com/zanzhit/studio_recorder/internal/services/auth"
+	cameraservice "github.com/zanzhit/studio_recorder/internal/services/cameras"
 	recordingservice "github.com/zanzhit/studio_recorder/internal/services/recordings"
 	"github.com/zanzhit/studio_recorder/internal/services/recordings/opencast"
 	"github.com/zanzhit/studio_recorder/internal/storage/postgres"
@@ -63,26 +64,44 @@ func main() {
 	}
 
 	cameraStorage := camerastorage.New(storage)
-	cameraHandler := camerahandler.New(log, cameraStorage)
+	cameraService := cameraservice.New(log, cfg.VideosPath, cameraStorage)
+	cameraHandler := camerahandler.New(log, cameraService, cameraStorage)
 
 	opencast := opencast.MustLoad(cfg.VideoService)
 
 	recordingStorage := recordingstorage.New(storage)
-	recordingService := recordingservice.New(log, recordingStorage, recordingStorage, opencast, cfg.VideosPath)
+	recordingService := recordingservice.New(log, recordingStorage, recordingStorage, cameraStorage, opencast, cfg.VideosPath)
 	recordingHandler := recordinghandler.New(log, recordingService, recordingService)
 
 	router.Post("/login", authHandler.Login)
-	router.With(authmid.AdminRequired).Post("/register", authHandler.RegisterNewUser)
 
 	router.With(authmid.JWTAuth(cfg.Secret)).Group(func(r chi.Router) {
-		r.With(authmid.AdminRequired).Post("/register", authHandler.RegisterNewUser)
-		r.With(authmid.AdminRequired).Post("/cameras", cameraHandler.SaveCamera)
+		r.With(authmid.AdminRequired).Route("/users", func(r chi.Router) {
+			r.Post("/", authHandler.RegisterNewUser)
+			r.Patch("/", authHandler.UpdatePassword)
+			r.Delete("/", authHandler.DeleteUser)
+		})
 
-		r.Post("/recordings/start", recordingHandler.Start)
-		r.Post("/recordings/stop", recordingHandler.Stop)
-		r.Post("/recordings/schedule", recordingHandler.Schedule)
-		r.Post("/recordings/move", recordingHandler.Move)
-		r.Get("/recordings", recordingHandler.Recordings)
+		r.Route("/cameras", func(r chi.Router) {
+			r.Get("/", cameraHandler.Cameras)
+			r.With(authmid.AdminRequired).Group(func(r chi.Router) {
+				r.Post("/", cameraHandler.SaveCamera)
+				r.Patch("/{cameraID}", cameraHandler.UpdateCamera)
+				r.Delete("/{cameraID}", cameraHandler.DeleteCamera)
+			})
+		})
+
+		r.Route("/recordings", func(r chi.Router) {
+			r.Get("/{cameraID}", recordingHandler.Recordings)
+			r.Get("/{recordID}/download", recordingHandler.Download)
+			r.Post("/start", recordingHandler.Start)
+			r.Post("/schedule", recordingHandler.Schedule)
+			r.Post("/{recordID}/stop", recordingHandler.Stop)
+			r.Delete("/{recordID}", recordingHandler.Delete)
+			if cfg.VideoService != "" {
+				r.Post("/{recordID}/move", recordingHandler.Move)
+			}
+		})
 	})
 
 	log.Info("starting http server", slog.String("address", cfg.Address))

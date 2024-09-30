@@ -2,7 +2,6 @@ version: '3.8'
 
 services:
   db:
-    restart: always
     image: postgres:latest
     container_name: postgres-container
     environment:
@@ -12,6 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    network_mode: "host"
 
   migrator:
     build: .
@@ -20,9 +20,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_USER: ${POSTGRES_USER}
       CONFIG_PATH: /root/config/config.yaml
-    command: ["./wait-for-postgres.sh", "db", "5432", "--", "./migrator", "--config=/root/config/config.yaml", "--migrations-path=/root/migrations"]
+    command: ["./wait-for-postgres.sh", "localhost", "5432", "--", "./migrator", "--config=/root/config/config.yaml", "--migrations-path=/root/migrations"]
     depends_on:
       - db
+    network_mode: "host"
 
   recorder:
     build: .
@@ -33,11 +34,17 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       CONFIG_PATH: /root/config/config.yaml
-    ports:
-      - "8082:8082"
-    command: ["./wait-for-postgres.sh", "db", "5432", "--", "./recorder"]
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./videos:/root/videos
+    command: ["./wait-for-postgres.sh", "localhost", "5432", "--", "./recorder"]
     depends_on:
       - migrator
+    network_mode: "host"
 
 volumes:
   pgdata:

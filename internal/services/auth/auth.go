@@ -26,6 +26,8 @@ type AuthService struct {
 
 type UserSaver interface {
 	SaveUser(email, userType string, passHash []byte) (string, error)
+	UpdatePassword(email string, passHash []byte) error
+	DeleteUser(email string) error
 }
 
 type UserProvider interface {
@@ -113,6 +115,55 @@ func (s *AuthService) Login(email, password string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func (s *AuthService) UpdatePassword(email, password string) error {
+	const op = "service.auth.UpdatePassword"
+
+	log := s.log.With(
+		slog.String("op", op),
+		slog.String("email", email),
+	)
+
+	log.Info("updating password")
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Error("failed to hash password", sl.Err(err))
+
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	if err := s.userSaver.UpdatePassword(email, passHash); err != nil {
+		log.Error("failed to update password", sl.Err(err))
+
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	log.Info("password updated successfully")
+
+	return nil
+}
+
+func (s *AuthService) DeleteUser(email string) error {
+	const op = "service.auth.DeleteUser"
+
+	log := s.log.With(
+		slog.String("op", op),
+		slog.String("email", email),
+	)
+
+	log.Info("deleting user")
+
+	if err := s.userSaver.DeleteUser(email); err != nil {
+		log.Error("failed to delete user", sl.Err(err))
+
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	log.Info("user deleted successfully")
+
+	return nil
 }
 
 func (s *AuthService) CreateInitialAdmin() error {

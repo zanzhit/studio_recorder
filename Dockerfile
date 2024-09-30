@@ -12,7 +12,19 @@ RUN go build -o recorder cmd/recorder/main.go
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates postgresql-client gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
+RUN apk update && apk --no-cache add \
+    ca-certificates \
+    postgresql-client \
+    gstreamer \
+    gst-plugins-base \
+    gst-plugins-good \
+    gst-plugins-bad \
+    gst-plugins-ugly \
+    gstreamer-tools \
+    tzdata && \
+    cp /usr/share/zoneinfo/Europe/Moscow /etc/localtime && \
+    echo "Europe/Moscow" > /etc/timezone && \
+    apk del tzdata
 
 WORKDIR /root/
 
